@@ -1,0 +1,151 @@
+#!/bin/bash
+main () {
+    runChecks "$@"
+
+    profile=default
+
+    accountid=335447660770
+
+    # Configure AWS CLI if necessary
+    if ! checkConfig; then
+        configureCLI
+    fi
+
+    if login $profile && getAccessToken && [[ ! -z $accessToken ]] && selectRole && setCredentials; then
+        exit 0
+    fi
+
+    onError
+}
+
+runChecks () {
+    if ! which jq > /dev/null 2>&1; then
+        echo "The jq utility is required for this script to run."
+        echo "See https://stedolan.github.io/jq/"
+        echo "For mac, use: brew install jq"
+        exit 255
+    fi
+    if ! which aws > /dev/null 2>&1 ; then
+        echo "AWS CLI is required for this script to run."
+        echo "See https://aws.amazon.com/cli/"
+        echo "For mac, use: brew install awscli"
+        exit 255
+    fi
+}
+
+checkConfig () {
+    aws configure list-profiles | grep -q "^${profile}\$"
+
+    return $?
+}
+
+configureCLI () {
+    aws configure set sso_start_url https://feike.awsapps.com/start --profile $profile >/dev/null 2>&1
+    aws configure set sso_region eu-central-1 --profile $profile >/dev/null 2>&1
+    aws configure set sso_account_id $accountid --profile $profile >/dev/null 2>&1
+    aws configure set sso_role_name ""
+    aws configure set region eu-central-1 --profile $profile >/dev/null 2>&1
+    aws configure set output json --profile $profile >/dev/null 2>&1
+}
+
+login () {
+    aws sso login --profile $profile
+    return $?
+}
+
+getAccessToken () {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        cacheFile=$(stat -f "%m %N" ~/.aws/sso/cache/* | sort -rn | head -1 | awk '{print $2}')
+    else
+        cacheFile=$(stat -c "%Z %n" ~/.aws/sso/cache/* | sort -rn | head -1 | awk '{print $2}')
+    fi
+
+    accessToken=$(cat $cacheFile | jq -r  '.accessToken')
+}
+
+selectRole () {
+    roles=$(aws sso list-account-roles --access-token $accessToken --account-id $accountid --region eu-central-1)
+
+    # No roles
+    if [[ $(echo $roles | jq '.roleList | length ') -lt 1 ]]; then
+        echo
+        echo "You have no roles in this account."
+        echo
+        onError
+    fi
+    # Just one role
+    if [[ $(echo $roles | jq '.roleList | length ') -eq 1 ]]; then
+        role=$(echo $roles | jq -r '.roleList[0].roleName')
+    fi
+    # Multiple roles
+    if [[ $(echo $roles | jq '.roleList | length ') -gt 1 ]]; then
+        echo
+        echo "You have multiple roles in this account, please select one from the list below"
+        echo
+        select role in $(echo "$roles" | jq -r '.roleList[].roleName'); do
+            if [ -z $role ]; then
+                echo "Invalid selection!"
+            else
+                break
+            fi
+        done
+    fi
+
+    credentials=$(aws sso get-role-credentials --role-name $role --account-id $accountid --access-token $accessToken --region eu-central-1)
+    accessKeyId=$(echo $credentials | jq -r  '.roleCredentials.accessKeyId')
+    secretAccessKey=$(echo $credentials | jq -r '.roleCredentials.secretAccessKey')
+    sessionToken=$(echo $credentials | jq -r '.roleCredentials.sessionToken')
+}
+
+setCredentials () {
+    # Store credentials for AWS CLI
+    aws configure set aws_access_key_id $accessKeyId --profile $profile >/dev/null 2>&1
+    aws configure set aws_secret_access_key $secretAccessKey --profile $profile >/dev/null 2>&1
+    aws configure set aws_session_token $sessionToken --profile $profile >/dev/null 2>&1
+    aws configure set sso_role_name $role --profile $profile >/dev/null 2>&1
+
+    ## Store credentials for other uses
+    #echo export AWS_ACCESS_KEY_ID=$accessKeyId > ~/.aws/sso/set-credentials-$role
+    #echo export AWS_SECRET_ACCESS_KEY=$secretAccessKey >> ~/.aws/sso/set-credentials-$role
+    #echo export AWS_SESSION_TOKEN=$sessionToken >> ~/.aws/sso/set-credentials-$role
+
+    #rm -f ~/.aws/sso/set-credentials
+    #ln -s ~/.aws/sso/set-credentials-$role ~/.aws/sso/set-credentials
+
+    ## Ensure vars are set on new shells
+    #if [[ -f ~/.bashrc ]]; then
+    #    if ! grep -q "source $HOME/.aws/sso/set-credentials" ~/.bashrc ; then
+    #        echo source $HOME/.aws/sso/set-credentials >> ~/.bashrc
+    #    fi
+    #fi
+    #if [[ -f ~/.zshrc ]]; then
+    #    if ! grep -q "source $HOME/.aws/sso/set-credentials" ~/.zshrc ; then
+    #        echo source $HOME/.aws/sso/set-credentials >> ~/.zshrc
+    #    fi
+    #fi
+
+    echo
+    echo -e "You are now logged on to AWS account \033[1m${accountid}\033[0m using role \033[1m${role}\033[0m."
+    echo -e "To use this account and role with AWS CLI use \033[1m--profile ${profile}\033[0m."
+    echo
+    echo -e "AWS_ACCESS_KEY_ID=\033[1m${accessKeyId}\033[0m"
+    echo -e "AWS_SECRET_ACCESS_KEY=\033[1m${secretAccessKey}\033[0m"
+    echo -e "AWS_SESSION_TOKEN=\033[1m${sessionToken}\033[0m"
+    echo
+}
+
+
+onError () {
+    echo ""
+    echo "************************"
+    echo "* AWS Login failed :-( *"
+    echo "************************"
+    echo ""
+    exit 255
+}
+
+# Handle errors cleanly
+trap 'onError' ERR
+
+main "$@"; exit
+
