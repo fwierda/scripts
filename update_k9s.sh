@@ -27,7 +27,7 @@ if [[ "$LOWEST" == "$AVAILABLE" ]]; then
 fi
 
 URI=$(echo $RELEASES | jq -r ".[0].assets | \
-    map(select(.name == \"${PKG_NAME}\")) \
+    map(select(.name | test(\".?_amd64.deb\"))) \
     | .[0].browser_download_url")
 
 echo "Found new release $AVAILABLE"
