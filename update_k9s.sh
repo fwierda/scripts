@@ -32,7 +32,7 @@ URI=$(echo $RELEASES | jq -r ".[0].assets | \
 
 echo "Found new release $AVAILABLE"
 
-wget -O /tmp/$PKG_NAME $URI
+curl -sLo /tmp/$PKG_NAME $URI
 
 sudo dpkg -i /tmp/$PKG_NAME
 
