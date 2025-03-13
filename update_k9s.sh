@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
+set -eo pipefail
+
 echo "Checking for new K9S version"
 
-PKG_NAME=k9s_linux_amd64.deb
+PKG_NAME="k9s_linux_amd64.deb"
 
 INSTALLED=$(dpkg -s k9s | grep -e "^Version:" | cut -d : -f2 | tr -d "[:space:]")
 
