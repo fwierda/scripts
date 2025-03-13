@@ -7,10 +7,10 @@ PKG_NAME="k9s_linux_amd64.deb"
 
 INSTALLED=$(dpkg -s k9s | grep -e "^Version:" | cut -d : -f2 | tr -d "[:space:]")
 
-RELEASES=$(gh api \
+RELEASES=$(curl -s \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
-    /repos/derailed/k9s/releases)
+    https://api.github.com/repos/derailed/k9s/releases?per_page=1)
 
 AVAILABLE=$(echo $RELEASES | jq -r ".[0].name" | tr -d "v")
 
@@ -20,7 +20,6 @@ if [[ "$INSTALLED" == "$AVAILABLE" ]]; then
 fi
 
 LOWEST=$(echo -e "$INSTALLED\n$AVAILABLE" | sort -V | head -n 1)
-
 
 if [[ "$LOWEST" == "$AVAILABLE" ]]; then
     echo "Installed version is higher than latest. Exiting."
