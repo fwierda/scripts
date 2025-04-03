@@ -1,39 +1,62 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-echo "Checking for new K9S version"
-
+REPO="derailed/k9s"
 PKG_NAME="k9s_linux_amd64.deb"
 
-INSTALLED=$(dpkg -s k9s | grep -e "^Version:" | cut -d : -f2 | tr -d "[:space:]")
+check_dependencies() {
+    if ! command -v jq &> /dev/null; then
+        echo "Error: jq is not installed. Please install jq and try again."
+        exit 1
+    fi
+}
 
-RELEASES=$(curl -s \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    https://api.github.com/repos/derailed/k9s/releases?per_page=1)
+check_installed_version() {
+    dpkg -s k9s 2>/dev/null | grep -e "^Version:" | cut -d : -f2 | tr -d "[:space:]"
+}
 
-AVAILABLE=$(echo $RELEASES | jq -r ".[0].name" | tr -d "v")
+fetch_latest_release() {
+    curl -s -H "Accept: application/vnd.github+json" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "https://api.github.com/repos/$REPO/releases?per_page=1"
+}
 
-if [[ "$INSTALLED" == "$AVAILABLE" ]]; then
-    echo "Latest version already installed. All done."
-    exit 0
-fi
+main() {
+    check_dependencies
 
-LOWEST=$(echo -e "$INSTALLED\n$AVAILABLE" | sort -V | head -n 1)
+    echo "Checking for new K9S version"
+    INSTALLED=$(check_installed_version)
+    INSTALLED=${INSTALLED:-"0.0.0"}
 
-if [[ "$LOWEST" == "$AVAILABLE" ]]; then
-    echo "Installed version is higher than latest. Exiting."
-    exit 255
-fi
+    RELEASES=$(fetch_latest_release)
+    if [[ -z "$RELEASES" ]]; then
+        echo "Error: Failed to fetch releases from GitHub."
+        exit 2
+    fi
 
-URI=$(echo $RELEASES | jq -r ".[0].assets | \
-    map(select(.name | test(\".?_amd64.deb\"))) \
-    | .[0].browser_download_url")
+    AVAILABLE=$(echo "$RELEASES" | jq -r ".[0].name" | tr -d "v")
+    if [[ "$INSTALLED" == "$AVAILABLE" ]]; then
+        echo "Latest version already installed. All done."
+        exit 0
+    fi
 
-echo "Found new release $AVAILABLE"
+    LOWEST=$(echo -e "$INSTALLED\n$AVAILABLE" | sort -V | head -n 1)
+    if [[ "$LOWEST" == "$AVAILABLE" ]]; then
+        echo "Installed version is higher than latest. Exiting."
+        exit 255
+    fi
 
-curl -sLo /tmp/$PKG_NAME $URI
+    URI=$(echo "$RELEASES" | jq -r ".[0].assets | \
+        map(select(.name | test(\".?_amd64.deb\"))) \
+        | .[0].browser_download_url")
 
-sudo dpkg -i /tmp/$PKG_NAME
+    echo "Found new release $AVAILABLE"
+    TEMP_DEB=$(mktemp --suffix=.deb)
+    trap 'rm -f "$TEMP_DEB"' EXIT
 
-rm /tmp/$PKG_NAME
+    curl -sLo "$TEMP_DEB" "$URI"
+    sudo dpkg -i "$TEMP_DEB"
+    echo "Update complete!"
+}
+
+main "$@"
