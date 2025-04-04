@@ -21,6 +21,11 @@ check_dependencies() {
 }
 
 check_installed_version() {
+    if ! dpkg -s $PACKAGE &> /dev/null; then
+        echo "0.0.0"
+        return
+    fi
+
     dpkg -s $PACKAGE 2>/dev/null | grep -e "^Version:" | cut -d : -f2 | tr -d "[:space:]"
 }
 
@@ -31,7 +36,7 @@ fetch_latest_release() {
 }
 
 main() {
-    check_inputs
+    check_inputs "$@"
     check_dependencies
 
     case "$1" in
@@ -41,7 +46,7 @@ main() {
             echo "Updating K9S..."
             ;;
         tabby)
-            PACKAGE="tabby"
+            PACKAGE="tabby-terminal"
             REPO="Eugeny/tabby"
             echo "Updating Tabby..."
             ;;
@@ -54,7 +59,6 @@ main() {
 
     echo "Checking for new ${PACKAGE} version"
     INSTALLED=$(check_installed_version)
-    INSTALLED=${INSTALLED:-"0.0.0"}
 
     RELEASES=$(fetch_latest_release)
     if [[ -z "$RELEASES" ]]; then
