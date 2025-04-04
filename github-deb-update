@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-REPO="derailed/k9s"
-PKG_NAME="k9s_linux_amd64.deb"
+check_inputs() {
+    if [[ -z "$1" ]]; then
+        echo "Usage: $0 <package-name>"
+        exit 1
+    fi
+}
 
 check_dependencies() {
     if ! command -v jq &> /dev/null; then
         echo "Error: jq is not installed. Please install jq and try again."
         exit 1
     fi
+
+    if ! command -v curl &> /dev/null; then
+        echo "Error: curl is not installed. Please install curl and try again."
+        exit 1
+    fi
 }
 
 check_installed_version() {
-    dpkg -s k9s 2>/dev/null | grep -e "^Version:" | cut -d : -f2 | tr -d "[:space:]"
+    dpkg -s $PACKAGE 2>/dev/null | grep -e "^Version:" | cut -d : -f2 | tr -d "[:space:]"
 }
 
 fetch_latest_release() {
@@ -22,9 +31,28 @@ fetch_latest_release() {
 }
 
 main() {
+    check_inputs
     check_dependencies
 
-    echo "Checking for new K9S version"
+    case "$1" in
+        k9s)
+            PACKAGE="k9s"
+            REPO="derailed/k9s"
+            echo "Updating K9S..."
+            ;;
+        tabby)
+            PACKAGE="tabby"
+            REPO="Eugeny/tabby"
+            echo "Updating Tabby..."
+            ;;
+        *)
+            echo "Error: Unsupported package '$1'."
+            exit 1
+            ;;
+    esac
+
+
+    echo "Checking for new ${PACKAGE} version"
     INSTALLED=$(check_installed_version)
     INSTALLED=${INSTALLED:-"0.0.0"}
 
@@ -47,7 +75,7 @@ main() {
     fi
 
     URI=$(echo "$RELEASES" | jq -r ".[0].assets | \
-        map(select(.name | test(\".?_amd64.deb\"))) \
+        map(select(.name | test(\".?(_amd|-x)64.deb\"))) \
         | .[0].browser_download_url")
 
     echo "Found new release $AVAILABLE"
